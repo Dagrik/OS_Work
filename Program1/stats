@@ -1,0 +1,205 @@
+#!/bin/bash
+
+#Joshua Sears
+#CS344
+#Fall 2016
+
+#Obtain data from files
+TMP1="tempfile$$"
+
+#Using case statement: http://tldp.org/LDP/Bash-Beginners-Guide/html/sect_07_03.html
+case $# in
+	#If file is piped in, create temp file
+	"1")
+	cat > "$TMP1"
+
+	if [ ! -s $TMP1 ]; then #IF TMP1 is empty 
+        	echo "No data received from piped file" 1>&2
+               	rm $TMP1
+        	exit 1
+	fi;;
+
+	#If file is input, check for existance and permissions
+	"2")if [[ $1 == '-r'* || $1 == '-c'* ]]; then  #if option correct
+
+		#http://www.tldp.org/LDP/abs/html/fto.html File Test operators      		
+		#If file does not exist
+		if [ ! -e $2 ]; then  
+			echo "File does not exist" 1>&2
+			exit 1
+	     	#Else if file cannot be read
+		elif [ ! -r $2 ]; then
+			echo "Cannot read file" 1>&2
+			exit 1
+	     	else 
+			TMP1="$2"
+	     	fi
+            #If option is wrong
+            else 
+		echo "Usage: stats {-rows|-cols} [file]" 1>&2 
+                exit 1
+	    fi;;
+
+	
+	#If any other amount of arguments, show usage format
+	*) echo "Usage: stats {-rows|-cols} [file]" 1>&2 
+	   exit 1;;
+esac
+
+trap "rm -f $TMP1; echo stats: Program ended before completion' 1>&2; exit 1;" INT HUP TERM
+
+#Calculate by row 
+if [[ $1 == -r* ]];
+then
+	#http://www.tldp.org/LDP/abs/html/fto.html File Test operators
+	if [ ! -s $TMP1 ]; then
+        	echo "File is empty" 1>&2
+        	if [ "$#" = "1" ]; then
+                	rm $TMP1
+        	fi
+        exit 1
+	fi
+
+	rowArray=( )
+	lineTot=0
+	lineCt=0
+	echo "Average	Median"
+#Read through each line in array, calc amount of values and row total
+	while read var
+	do
+		rowArray+=( $var )
+		for i in "${rowArray[@]}"
+		do
+			lineTot=`expr $lineTot + $i`
+			lineCt=`expr $lineCt + 1`
+		done
+	#Sorting algorithm for row array to allow for findina median
+	#Ran for each row
+	for (( j=0; j<`expr $lineCt - 1`; j++ ))
+	do
+		for (( k=0; k<`expr $lineCt - $j - 1`; k++ ))
+		do
+			if (( "${rowArray[$k]}" > "${rowArray[$k + 1]}" )); then
+			tmp="${rowArray[$k]}" 	
+			rowArray[$k]="${rowArray[$k+1]}"
+			rowArray[$(( k+1 ))]="$tmp"
+			fi
+		done
+	done  
+
+	#Calculate average for each row, and the median position
+	avg=`expr \( $lineTot + \( $lineCt / 2 \) \) / $lineCt`
+	medPos=`expr $lineCt / 2 + 1`
+
+	#Output values to screen
+	echo "$avg	${rowArray[$medPos - 1]}"
+	
+	#Reset array and totals for next row
+	unset rowArray
+	lineTot=0
+	lineCt=0
+done < $TMP1
+
+#If file piped in, erase temp file created
+if [ "$#" = "1" ]
+then
+	rm $TMP1
+fi
+
+
+#Calculate values for columns
+elif [[ $1 == -c* ]];
+then
+
+	#If file is empty, exit and delete if temp file made
+	if [ ! -s $TMP1 ]; then
+        	echo "File is empty" 1>&2
+        	if [ "$#" = "1" ]
+        	then
+                	rm $TMP1
+        	fi
+        exit 1
+	fi
+
+array=( )
+sortedArray=( )
+avgArray=( )
+medArray=( )
+filepath="$TMP1"
+lineTot=0
+lineCt=0
+numCount=0
+lineWidth=0
+
+#read all values into array
+while read var
+do
+	array+=( $var )
+	lineCt=`expr $lineCt + 1`
+done < $filepath
+
+#calculate number of values to allow for column calculation
+for i in "${array[@]}"
+do
+	numCount=`expr $numCount + 1`
+done
+
+#Calculate column amount
+lineWidth=`expr $numCount / $lineCt`
+
+#Create an array containing only values from one  column
+#By incrementing thru array by number of columns	
+for (( count=0; count < $lineWidth; count++ ))
+	do
+	place=0
+		for (( r=$count; r < $numCount; r=`expr $r + $lineWidth`)) 
+		do
+		
+		lineTot=`expr $lineTot + ${array[$r]}`
+		sortedArray[$place]="${array[$r]}"
+		place=`expr $place+1`
+		done
+
+	#Sorting algorithm to calc median value of column
+ 	for (( j=0; j<`expr $lineCt-1 `; j++ ))
+        do
+                for (( k=0; k<`expr $lineCt-$j-1 `; k++ ))
+                do
+		if (( "${sortedArray[$k]}" > "${sortedArray[$k + 1]}" ));
+		 	then 
+                       	tmp="${sortedArray[$k]}"
+			sortedArray[$k]="${sortedArray[$k+1]}"
+                       	sortedArray[ $k+1 ]="$tmp"
+		fi
+                done
+        done
+
+	#Calculate average and add to array of averages
+	tempAvg=`expr \( $lineTot + \( $lineCt / 2 \) \) / $lineCt`
+	avgArray[$count]="$tempAvg    "
+        
+	#Calculate medians and add to median array
+	medPos=`expr $lineCt / 2 + 1`
+	medArray[$count]="${sortedArray[$medPos-1]}    "
+
+	#Reset col total for avg calc
+	lineTot=0
+done
+
+	#Display arrays of averages and medians for all columns
+	echo "Averages:"
+	echo "${avgArray[@]}"
+	echo "Medians:"
+	echo "${medArray[@]}"
+
+	#If temp file was created, delete
+	if [ "$#" = "1" ]
+	then
+		rm $TMP1
+	fi
+
+#IF not -r or -c
+else
+	echo "Usage: stats {-rows|-cols} [file]" 1>&2
+	exit 1
+fi
